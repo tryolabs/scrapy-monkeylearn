@@ -18,11 +18,12 @@ is: `[{'label': 'English', 'probability': 0.321}]`.
 
 # Usage
 
-In your settings.py file, add the previously described settings and add `MonkeylearnMiddleware` to your middlewares, e.g.:
+In your settings.py file, add the previously described settings and add `MonkeylearnMiddleware` to your middlewares **with a low number (such as `1`)**, so that this middleware is the last one to be executed when the data is going from the spider to Scrapy engine, e.g.:
 
 ```python
 SPIDER_MIDDLEWARES = {
-    'scrapy_monkeylearn.middlewares.MonkeylearnMiddleware': 1000,
+    # the MonkeyLearnMiddleware requires a very low order number
+    'scrapy_monkeylearn.middlewares.MonkeylearnMiddleware': 1,
 }
 ```
 

@@ -1,5 +1,6 @@
 import scrapy
 from monkeylearn import MonkeyLearn
+from scrapy import signals
 from scrapy.exceptions import NotConfigured
 
 
@@ -34,6 +35,7 @@ class MonkeylearnMiddleware(object):
 
         middleware = cls(token, module_id, field_to_classify,
                          field_classification_output, batch_size, use_sandbox)
+        crawler.signals.connect(middleware.spider_idle, signal=signals.spider_idle)
 
         return middleware
 
@@ -52,31 +54,47 @@ class MonkeylearnMiddleware(object):
                 yield elem
 
         if len(self.items) > self.batch_size:
-            if isinstance(self.field_to_classify, list) or isinstance(self.field_to_classify, tuple):
-                text_list = [
-                    ' '.join([unicode(item[elem]) for elem in self.field_to_classify])
-                    for item in self.items
-                ]
-            else:
-                text_list = [unicode(item[self.field_to_classify]) for item in self.items]
-            if self.module_id.startswith('cl_'):
-                res = self.ml.classifiers.classify(
-                    self.module_id,
-                    text_list,
-                    sandbox=self.use_sandbox
-                ).result
-            elif self.module_id.startswith('ex_'):
-                res = self.ml.extractors.extract(
-                    self.module_id,
-                    text_list
-                ).result
-            else:
-                res = self.ml.pipelines.run(
-                    self.module_id,
-                    text_list
-                ).result
             items = self.items
             self.items = []
-            for i, item in enumerate(items):
-                item[self.field_classification_output] = res[i]
+            for item in self.analyze_with_monkeylearn(items):
                 yield item
+
+    def spider_idle(self, spider):
+        items = self.items
+        self.items = []
+        for item in self.analyze_with_monkeylearn(items):
+            # Warning: this requires this middleware's process_spider_output()
+            # to be last one to execute among the middlewares, because the call
+            # below sends the items directly into the pipelines. So, use a
+            # small number for this middleware order in settings, such as 1.
+            spider.crawler.engine.scraper._process_spidermw_output(
+                item, None, scrapy.http.Response(''), spider
+            )
+
+    def analyze_with_monkeylearn(self, items):
+        if isinstance(self.field_to_classify, list) or isinstance(self.field_to_classify, tuple):
+            text_list = [
+                ' '.join([unicode(item[elem]) for elem in self.field_to_classify])
+                for item in items
+            ]
+        else:
+            text_list = [unicode(item[self.field_to_classify]) for item in items]
+        if self.module_id.startswith('cl_'):
+            res = self.ml.classifiers.classify(
+                self.module_id,
+                text_list,
+                sandbox=self.use_sandbox
+            ).result
+        elif self.module_id.startswith('ex_'):
+            res = self.ml.extractors.extract(
+                self.module_id,
+                text_list
+            ).result
+        else:
+            res = self.ml.pipelines.run(
+                self.module_id,
+                text_list
+            ).result
+        for i, item in enumerate(items):
+            item[self.field_classification_output] = res[i]
+            yield item
